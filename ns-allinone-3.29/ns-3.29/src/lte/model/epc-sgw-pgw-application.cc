@@ -676,5 +676,10 @@ EpcSgwPgwApplication::DoDeleteBearerResponse (EpcS11SapSgw::DeleteBearerResponse
       ueit->second->RemoveBearer (bit->epsBearerId);
     }
 }
+//For dc insert
+EpcSgwPgwApplication::IsAssistInfoSink(){
+  NS_LOG_FUNCTION(this);
+  m_isAssistInfoSink = true;
+}
 
 }  // namespace ns3
