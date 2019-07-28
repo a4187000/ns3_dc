@@ -206,6 +206,163 @@ int p1, p2;
 
 std::ofstream OutFile_forEtha1X ("etha_At_1X.txt");
 
+//For DC insert
+void
+EpcSgwPgwApplication::UpdateEthas(){
+/// the split algorithm using RLC AM queuing delay
+	double delayAtMenb, delayAtSenb;//sjkang
+	delayAtMenb = info1X[0].rlc_tx_queue_hol_delay + info1X[0].rlc_retx_queue_hol_delay;
+	delayAtSenb = info1X[1].rlc_tx_queue_hol_delay + info1X[1].rlc_retx_queue_hol_delay;
+	double DelayDifferenceAtMenb = std::max (targetDelay -delayAtMenb,sigma);
+	double DelayDifferenceAtSenb =std::max (targetDelay -delayAtSenb,sigma);
+
+	etha_AtMenbFromDelay= DelayDifferenceAtMenb / (DelayDifferenceAtMenb+DelayDifferenceAtSenb);
+	etha_AtSenbFromDelay = DelayDifferenceAtSenb / (DelayDifferenceAtMenb+DelayDifferenceAtSenb);
+	pastEthaAtMenbFromDelay = (1-alpha)*pastEthaAtMenbFromDelay + alpha*etha_AtMenbFromDelay;
+	pastEthaAtSenbFromDelay = (1-alpha)*pastEthaAtSenbFromDelay +alpha* etha_AtSenbFromDelay;
+        //targetDelay = std::max(delayAtMenb, delayAtSenb);    
+        //targetDelay += targetDelay*0.2;
+	double ThroughputAtSenb = info1X[1].averageThroughput;
+        double ThroughputAtMenb = info1X[0].averageThroughput;
+	double targetThroughput_AtMenb = 10000000;
+	double targetThroughput_AtSenb = 9000000;
+	double theSumOfThroughputRatio = targetThroughput_AtMenb/ThroughputAtMenb +targetThroughput_AtSenb/ThroughputAtSenb;
+
+		 etha_AtMenbFrom_Thr_= (targetThroughput_AtMenb/ThroughputAtMenb)/theSumOfThroughputRatio;
+		etha_AtSenbFrom_Thr_=(targetThroughput_AtSenb/ThroughputAtSenb)/theSumOfThroughputRatio;
+
+
+	 double queueSizeAtMenb, queueSizeAtSenb;
+ 	 queueSizeAtMenb = info1X[0].rlc_retx_queue + info1X[0].rlc_tx_queue;
+ 	 queueSizeAtSenb = info1X[1].rlc_retx_queue +info1X[1].rlc_tx_queue;
+
+ 	double QueueDifferenceAtMenb = std::max (targetQueueSize - queueSizeAtMenb, sigma*1000);
+ 	double QueueDifferenceAtSenb = std::max (targetQueueSize - queueSizeAtSenb, sigma*1000);
+
+ 	etha_AtMenbFromQueueSize = QueueDifferenceAtMenb /(QueueDifferenceAtMenb+QueueDifferenceAtSenb);
+ 	etha_AtSenbFromQueueSize = QueueDifferenceAtSenb /(QueueDifferenceAtMenb+QueueDifferenceAtSenb);
+    pastEthaAtMenbFromQueueSize = (1-alpha)*pastEthaAtMenbFromQueueSize+alpha * etha_AtMenbFromQueueSize;
+    pastEthaAtSenbFromQueuesize = (1-alpha)*pastEthaAtSenbFromQueuesize+alpha* etha_AtSenbFromQueueSize;
+       targetQueueSize = std::max(queueSizeAtMenb, queueSizeAtSenb);
+	targetQueueSize += targetQueueSize*0.2;
+	//targetQueueSize = std::max(2.5*t_targetQueueSize - 1.5*pre_QueueSize,t_targetQueueSize+t_targetQueueSize*0.2); 
+        //pre_QueueSize = t_targetQueueSize; 
+    //  std::cout << ThroughputAtMenb << "\t" << ThroughputAtSenb << std::endl;
+           /* if ( delayAtSenb - delayAtMenb > 1.0 && queueSizeAtMenb !=0 && queueSizeAtSenb!=0){
+            ToMenb=true;
+            ToSenb=false;
+                
+                      
+           }
+        else if(delayAtMenb - delayAtSenb >1.0 && queueSizeAtMenb !=0 && queueSizeAtSenb!=0 ){
+                ToMenb=false;
+                ToSenb=true;
+   
+                }
+        else*/ 
+	if ( info1X[0].rlc_retx_queue > 10000 ) {
+			ToSenb=true;
+			ToMenb= false;
+		}
+	else if (info1X[1].rlc_retx_queue >10000) {
+		ToMenb= true;        
+		ToSenb=false ; 
+		}
+       else{
+                ToSenb=false;
+                ToMenb=false;
+        }
+  	OutFile_forEtha1X << Simulator::Now().GetSeconds()<< "\t" << " Menb_etha_delay" << "\t" << pastEthaAtMenbFromDelay << "\t" << "Senb_etha_delay" <<"\t " 
+       <<pastEthaAtSenbFromDelay <<"\t"<<"Menb_etha_Queue" <<"\t" <<  pastEthaAtMenbFromQueueSize <<"\t  " << "Senb_etha_Queue" << "\t"<<
+                       pastEthaAtSenbFromQueuesize << std::endl;
+  		//	<< pastEthaAtSenbFromDelay << "\t" << ThroughputAtMenb << "\t" << ThroughputAtSenb << std::endl;
+}
+int count_forSplitting_At_SgwPgw=0;
+int
+EpcSgwPgwApplication::SplitAlgorithm ()
+{
+  NS_LOG_FUNCTION (this);
+/*
+ 0: MeNB only
+ 1: SeNB only
+ 2: alternative splitting
+*/
+
+ int size =50;
+  // return 0 for Tx through MeNB &  return 1 for Tx through SeNB
+  switch (m_splitAlgorithm)
+  {
+    case 0:
+      return 0;
+      break;
+
+    case 1:
+      return 1;
+      break;
+
+    case 2:
+      if (m_lastDirection1X == 0) return 1;
+      else return 0;
+      break;
+    case 3:
+ 		if (count_forSplitting_At_SgwPgw > size*(pastEthaAtSenbFromDelay+pastEthaAtMenbFromDelay)){
+    	        	UpdateEthas();
+
+    	        	count_forSplitting_At_SgwPgw =0;
+    	        	 return 0;
+    	        }
+    	        else if (count_forSplitting_At_SgwPgw < pastEthaAtMenbFromDelay*size)
+    	        {
+
+    	        	count_forSplitting_At_SgwPgw++;
+    	        	return 0;
+
+    	        }
+    	        else if (count_forSplitting_At_SgwPgw >= pastEthaAtMenbFromDelay *size
+    	        		&& count_forSplitting_At_SgwPgw <= size*(pastEthaAtMenbFromDelay+pastEthaAtSenbFromDelay))
+    	        {
+    	          	count_forSplitting_At_SgwPgw++;
+    	        	return 1;
+    	        }
+    break;
+   case 4: 
+         
+   /*      if (ToSenb == true && ToMenb==false ) {
+                UpdateEthas();
+                return 1;
+                }
+        else if (ToMenb == true && ToSenb==false) {
+                UpdateEthas();
+                return 0;
+                }
+ 	 else*/ 
+	{		
+		if (count_forSplitting_At_SgwPgw > size*(pastEthaAtSenbFromQueuesize+pastEthaAtMenbFromQueueSize)){
+  	        	UpdateEthas();
+
+  	        	count_forSplitting_At_SgwPgw =0;
+  	        	 return 0;
+  	        }
+  	        else if (count_forSplitting_At_SgwPgw < pastEthaAtMenbFromQueueSize*size)
+  	        {
+
+  	        	count_forSplitting_At_SgwPgw++;
+  	        	return 0;
+
+  	        }
+  	        else if (count_forSplitting_At_SgwPgw >= pastEthaAtMenbFromQueueSize *size
+  	        		&& count_forSplitting_At_SgwPgw <= size*(pastEthaAtMenbFromQueueSize+pastEthaAtSenbFromQueuesize))
+  	        {
+  	          	count_forSplitting_At_SgwPgw++;
+  	        	return 1;
+  	        }
+	}
+  	        break;
+
+  }
+  return -1;
+}
+
 bool
 EpcSgwPgwApplication::RecvFromTunDevice (Ptr<Packet> packet, const Address& source, const Address& dest, uint16_t protocolNumber)
 {
@@ -330,6 +487,11 @@ EpcSgwPgwApplication::SendToS1uSocket (Ptr<Packet> packet, Ipv4Address enbAddr, 
   gtpu.SetTeid (teid);
   // From 3GPP TS 29.281 v10.0.0 Section 5.1
   // Length of the payload + the non obligatory GTP-U header
+
+  //modify dc
+  gtpu.SetSequenceMumber(gipu_SN);
+  gtpu_SN++;
+
   gtpu.SetLength (packet->GetSize () + gtpu.GetSerializedSize () - 8);  
   packet->AddHeader (gtpu);
   uint32_t flags = 0;
@@ -387,6 +549,7 @@ EpcSgwPgwApplication::SetUeAddress6 (uint64_t imsi, Ipv6Address ueAddr)
   ueit->second->SetUeAddr6 (ueAddr);
 }
 
+//modify for dc
 void 
 EpcSgwPgwApplication::DoCreateSessionRequest (EpcS11SapSgw::CreateSessionRequestMessage req)
 {
@@ -412,6 +575,34 @@ EpcSgwPgwApplication::DoCreateSessionRequest (EpcS11SapSgw::CreateSessionRequest
       NS_ABORT_IF (m_teidCount == 0xFFFFFFFF);
       uint32_t teid = ++m_teidCount;  
       ueit->second->AddBearer (bit->tft, bit->epsBearerId, teid);
+      //modify for dc
+      ueit->second->dcType = bit->dcType;
+       if(bit->dcType == 0 || bit->dcType == 2) { // woody3C
+          NS_LOG_FUNCTION ("SetEnbAddr " << enbAddr << " dcType " << (unsigned)bit->dcType << " teid " << teid);
+          ueit->second->SetEnbAddr (enbAddr);
+      }
+      else if(bit->dcType == 1) {  // woody
+          NS_LOG_FUNCTION ("SetSenbAddr " << enbAddr << " dcType " << (unsigned)bit->dcType << " teid " << teid);
+          ueit->second->SetSenbAddr (enbAddr); // woody, actually SetSenbAddr is currently not utilized
+          m_dcEnbAddrByTeidMap[teid] = enbAddr;
+      }
+      else if(bit->dcType == 3) {  // woody1X
+          if (req.isSenb == 1)
+          {
+            NS_LOG_FUNCTION ("SetSenbAddr " << enbAddr << " dcType " << (unsigned)bit->dcType << " teid " << teid);
+            ueit->second->SetSenbAddr (enbAddr); // woody, actually SetSenbAddr is currently not utilized
+            m_dcEnbAddrByTeidMap[teid] = enbAddr;
+ 
+          }
+          else
+          {
+            NS_LOG_FUNCTION ("SetEnbAddr " << enbAddr << " dcType " << (unsigned)bit->dcType << " teid " << teid);
+            ueit->second->SetEnbAddr (enbAddr);
+          }
+      }
+      else {
+          NS_FATAL_ERROR("unimplemented DC type");
+      }
 
       EpcS11SapMme::BearerContextCreated bearerContext;
       bearerContext.sgwFteid.teid = teid;
@@ -419,6 +610,8 @@ EpcSgwPgwApplication::DoCreateSessionRequest (EpcS11SapSgw::CreateSessionRequest
       bearerContext.epsBearerId =  bit->epsBearerId; 
       bearerContext.bearerLevelQos = bit->bearerLevelQos; 
       bearerContext.tft = bit->tft;
+      //modify for dc
+      bearerContext.dcType = bit->dcType;
       res.bearerContextsCreated.push_back (bearerContext);
     }
   m_s11SapMme->CreateSessionResponse (res);
